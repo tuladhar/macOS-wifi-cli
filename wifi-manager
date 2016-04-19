@@ -1,0 +1,303 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+#
+# The MIT License (MIT)
+#
+# Copyright (c) 2016 Puru Tuladhar
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+
+__prog__ = 'wifi-manager'
+__version__ = '1.0'
+__author__ = 'Puru Tuladhar'
+__url__ = 'https://github.com/tuladhar/wifi-manager'
+
+import re
+import os
+import sys
+import argparse
+import subprocess
+
+wifi_tools = {
+	'networksetup': '/usr/sbin/networksetup',
+	'airport': '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+}
+
+networksetup = wifi_tools.get('networksetup')
+airport = wifi_tools.get('airport')
+
+available_options = [
+	{
+		'flag': ['-v', '--version'],
+		'kwargs': {
+			'action': 'version',
+			'version': '%(prog)s version {0} by {1} ({2})'.format(__version__, __author__, __url__)
+		}
+	},
+	{
+		'flag': ['-i'],
+		'kwargs': {
+			'help': 'If an interface is not specified, wifi-manager will auto-detect and use the first Wi-Fi interface on the system',
+			'dest': 'interface'
+		}
+	},
+]
+
+available_commands = [
+	{
+		'name': 'preferred',
+		'help': 'list preferred networks'
+	},
+	{
+		'name': 'scan',
+		'help': 'scan for networks'
+	},
+	{
+		'name': 'join',
+		'help': 'join a network',
+		'arguments': [
+			{
+				'name': 'network',
+				'help': 'network name'
+			},
+			{
+				'name': 'password',
+				'help': 'network password'
+			}
+		]
+	},
+	{
+		'name': 'disconnect',
+		'help': 'disconnect from a network (requires root privileges)'
+	},
+	{
+		'name': 'status',
+		'help': 'show network connection status'
+	},
+	{
+		'name': 'info',
+		'help': 'show connected network info'
+	},
+	{
+		'name': 'mac',
+		'help': 'show device hardware (MAC) address'
+	},
+	{
+		'name': 'power',
+		'help': 'control device power state',
+		'subcommands': [
+			{
+				'name': 'on',
+				'help': 'power on the device'
+			},
+			{
+				'name': 'off',
+				'help': 'power off the device'
+			},
+			{
+				'name': 'status',
+				'help': 'show device current power state'
+			}
+		]
+	},
+]
+
+class WiFi():
+	''' WiFi class '''
+
+	@staticmethod
+	def exit(msg):
+		print(msg)
+		sys.exit(0)
+
+
+	@staticmethod
+	def error(msg):
+		first_line = msg.splitlines()[0]
+		sys.exit('{0}: {1}'.format(__prog__, first_line))
+
+	@staticmethod
+	def execute(command):
+		p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		stdout, stderr = p.communicate()
+		stdout, stderr = stdout.decode('utf-8').rstrip(), stderr.decode('utf-8').rstrip()
+		ok = True if p.poll() == 0 else False
+		return (ok, stdout, stderr)
+
+	@staticmethod
+	def auto_detect():
+		''' auto-detect and use first Wi-Fi interface on the system '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-listallhardwareports'])
+		if not ok:
+			WiFi.error(stderr)
+		lines = filter(lambda line: line.strip(), stdout.splitlines())
+		interface = None
+		for no, line in enumerate(lines):
+			if 'Wi-Fi' in line:
+				next_line = lines[no+1]
+				if next_line.startswith('Device'):
+					interface = next_line.split().pop()
+				break
+		if not interface:
+			WiFi.exit('No Wi-Fi interface found on the system')
+		return interface
+
+	def __init__(self, interface=None):
+		self.interface = interface
+		if not interface:
+			self.interface = WiFi.auto_detect()
+		# check if a device is a WiFi interface
+		self.power_status()
+
+	def preferred(self, args):
+		''' list preferred networks '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-listpreferredwirelessnetworks', self.interface])
+		if not ok:
+			WiFi.error(stderr) 
+		print(stdout)
+
+	def scan(self, args):
+		''' scan for networks '''
+		self.device_must_be_powered_on()
+		ok, stdout, stderr = WiFi.execute([airport, self.interface, '--scan'])
+		if not ok:
+			WiFi.error(stderr)
+		print(stdout)
+
+	def join(self, args):
+		''' join a network '''
+		self.device_must_be_powered_on()
+		network = args.network
+		password = args.password
+		ok, stdout, stderr = WiFi.execute([networksetup, '-setairportnetwork', self.interface, network, password])
+		if not ok:
+			WiFi.error(stderr)
+		# Join network error are written to stdout.
+		# If join succeeded then nothing gets written to stdout.
+		stderr = stdout
+		if stderr:
+			WiFi.exit(stderr.splitlines()[0])
+		WiFi.exit('Joined network {0}.'.format(network))
+
+	def disconnect(self, args):
+		''' disconnect from a network (requires root privileges) '''
+		self.device_must_be_powered_on()
+		if not os.geteuid() == 0:
+			WiFi.error('requires root privileges')
+		ok, stdout, stderr = WiFi.execute([airport, self.interface, '--disassociate'])
+		if not ok:
+			WiFi.error(stderr)
+
+	def status(self, args):
+		''' show network connection status '''
+		self.device_must_be_powered_on()
+		ok, stdout, stderr = WiFi.execute([networksetup, '-getairportnetwork', self.interface])
+		if not ok:
+			WiFi.error(stderr)
+		print(stdout)
+
+	def info(self, args):
+		''' show connected network info '''
+		self.device_must_be_powered_on()
+		ok, stdout, stderr = WiFi.execute([airport, self.interface, '--getinfo'])
+		if not ok:
+			WiFi.error(stderr)
+		print(stdout)
+
+	def mac(self, args):
+		''' show device hardware (MAC) address '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-getmacaddress', self.interface])
+		if not ok:
+			WiFI.error(stderr)
+		ethernet_address = 'N/A'
+		mac_re = re.compile('(.{2}:.{2}:.{2}:.{2}:.{2}:.{2})')
+		match = mac_re.search(stdout)
+		if match:
+			ethernet_address = match.group()
+		print('Wi-Fi device {0} has MAC address: {1}'.format(self.interface, ethernet_address))
+
+	def device_must_be_powered_on(self):
+		''' exit if device is not powered on '''
+		power_status = self.power_status()
+		if not 'powered on' in power_status:
+			WiFi.exit(power_status)
+
+	def power_on(self):
+		''' power on the device '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-setairportpower', self.interface, 'on'])
+		if not ok:
+			WiFi.error(stderr)
+		return 'Wi-Fi device {0} powered on'.format(self.interface)
+		
+	def power_off(self):
+		''' power off the device '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-setairportpower', self.interface, 'off'])
+		if not ok:
+			WiFi.error(stderr)
+		return 'Wi-Fi device {0} powered off'.format(self.interface)
+
+	def power_status(self):
+		''' show power state of the device '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-getairportpower', self.interface])
+		if not ok:
+			WiFi.error(stderr) if stderr else WiFi.error(stdout)
+		status = stdout.split().pop().lower()
+		return 'Wi-Fi device {0} is currently powered {1}'.format(self.interface, status)
+		
+	def power(self, args):
+		''' control Wi-Fi device power state '''
+		print(getattr(self, 'power_'+args.subcommand)())
+
+
+def main():
+	ap = argparse.ArgumentParser(description='A command-line tool for managing Wi-Fi in Mac OS X')
+
+	for o in available_options:
+		ap.add_argument(*o['flag'], **o['kwargs'])
+
+	cp = ap.add_subparsers(help='available commands', dest='command')
+
+	for cmd in available_commands:
+		p = cp.add_parser(cmd.get('name'), help=cmd.get('help'))
+
+		if cmd.has_key('arguments'):
+			for argument in cmd.get('arguments'):
+				p.add_argument(argument.get('name'), help=argument.get('help'))
+
+		if cmd.has_key('subcommands'):
+			scp = p.add_subparsers(help='available sub-commands', dest='subcommand')
+			for subcmd in cmd.get('subcommands'):
+				scp.add_parser(subcmd.get('name'), help=subcmd.get('help'))
+
+	args = ap.parse_args()
+
+	'''
+	Map commands to methods of WiFi instance.
+	e.g:
+		$ wifi scan
+	maps to wifi.scan(args)
+	'''
+	wifi = WiFi(args.interface)
+	getattr(wifi, args.command)(args)
+
+	return 0
+
+if __name__ == '__main__':
+	sys.exit(main())
