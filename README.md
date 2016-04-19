@@ -81,6 +81,3 @@ Wi-Fi device en1 powered off
 $ wifi-manager power on
 Wi-Fi device en1 powered on
 ```
-
-# Authors
-- Puru Tuladhar tuladharpuru@gmail.com
