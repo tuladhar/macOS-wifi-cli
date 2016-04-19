@@ -82,8 +82,5 @@ $ wifi-manager power on
 Wi-Fi device en1 powered on
 ```
 
-# License
-wifi-manager is licensed under the MIT license. See LICENSE for more information.
-
 # Authors
 - Puru Tuladhar tuladharpuru@gmail.com
