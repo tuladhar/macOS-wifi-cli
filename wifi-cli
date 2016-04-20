@@ -1,0 +1,362 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+#
+# The MIT License (MIT)
+#
+# Copyright (c) 2016 Puru Tuladhar
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+
+__prog__ = 'wifi-cli'
+__version__ = '1.0'
+__author__ = 'Puru Tuladhar'
+__url__ = 'https://github.com/tuladhar/wifi-cli'
+
+import re
+import os
+import sys
+import argparse
+import subprocess
+
+wifi_tools = {
+	'networksetup': '/usr/sbin/networksetup',
+	'airport': '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+}
+
+networksetup = wifi_tools.get('networksetup')
+airport = wifi_tools.get('airport')
+
+available_options = [
+	{
+		'flag': ['-v', '--version'],
+		'kwargs': {
+			'action': 'version',
+			'version': '%(prog)s version {0} by {1} ({2})'.format(__version__, __author__, __url__)
+		}
+	},
+	{
+		'flag': ['-i'],
+		'kwargs': {
+			'help': 'If an interface is not specified, %(prog)s will use the first Wi-Fi interface on the system.',
+			'dest': 'interface'
+		}
+	},
+]
+
+available_commands = [
+	{
+		'name': 'history',
+		'help': 'list joined wireless networks history'
+	},
+	{
+		'name': 'preferred',
+		'help': 'list preferred wireless networks'
+	},
+	{
+		'name': 'showpass',
+		'help': 'show wireless network password stored in keychain',
+		'arguments': [
+			{
+				'name': 'network',
+				'help': 'network name'
+			}
+		]
+	},
+	{
+		'name': 'scan',
+		'help': 'scan for wireless networks'
+	},
+	{
+		'name': 'join',
+		'help': 'join a wireless network',
+		'arguments': [
+			{
+				'name': 'network',
+				'help': 'network name'
+			},
+			{
+				'name': 'password',
+				'help': 'network password'
+			}
+		]
+	},
+	{
+		'name': 'disconnect',
+		'help': 'disconnect from a wireless network (requires root)'
+	},
+	{
+		'name': 'status',
+		'help': 'show currently connected wireless network'
+	},
+	{
+		'name': 'info',
+		'help': 'show info about currently connected wireless network'
+	},
+	{
+		'name': 'mac',
+		'help': 'show Wi-Fi device hardware (MAC) address'
+	},
+	{
+		'name': 'power',
+		'help': 'control Wi-Fi device power state',
+		'subcommands': [
+			{
+				'name': 'on',
+				'help': 'power on the device'
+			},
+			{
+				'name': 'off',
+				'help': 'power off the device'
+			},
+			{
+				'name': 'status',
+				'help': 'show current power state'
+			}
+		]
+	},
+]
+
+class WiFi():
+	''' WiFi class '''
+
+	@staticmethod
+	def exit(msg):
+		print(msg)
+		sys.exit(0)
+
+	@staticmethod
+	def error(msg):
+		if msg:
+			first_line = msg.splitlines()[0]
+			sys.exit('{0}: {1}'.format(__prog__, first_line))
+		sys.exit(1)
+
+	@staticmethod
+	def execute(command, use_shell=False):
+		p = subprocess.Popen(command, shell=use_shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		stdout, stderr = p.communicate()
+		stdout, stderr = stdout.decode('utf-8').rstrip(), stderr.decode('utf-8').rstrip()
+		ok = True if p.poll() == 0 else False
+		return (ok, stdout, stderr)
+
+	@staticmethod
+	def auto_detect():
+		''' auto-detect and use first Wi-Fi interface on the system '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-listallhardwareports'])
+		if not ok:
+			WiFi.error(stderr)
+		lines = filter(lambda line: line.strip(), stdout.splitlines())
+		interface = None
+		for no, line in enumerate(lines):
+			if 'Wi-Fi' in line:
+				next_line = lines[no+1]
+				if next_line.startswith('Device'):
+					interface = next_line.split().pop()
+				break
+		if not interface:
+			WiFi.exit('No Wi-Fi interface found on the system')
+		return interface
+
+	def __init__(self, interface=None):
+		self.interface = interface
+		if not interface:
+			self.interface = WiFi.auto_detect()
+		# check if a device is a WiFi interface
+		self.power_status()
+
+	def history(self, args):
+		''' list joined wireless networks history '''
+
+		def clean(s):
+			items = ['LastConnected =', 'SSIDString =', 'SecurityType =', '"', ';']
+			for item in items:
+				s = s.replace(item, '')
+			return s.strip()
+
+		headers = 'SSID', 'SECURITY', 'LAST CONNECTED'
+		h1_len, h2_len, h3_len = [len(h) for h in headers]
+		fmt = '\t{0:{h1_len}}  {1:{h2_len}}  {2}'
+		lc_list = []
+		lc_map = {}
+
+		ok, stdout, stderr = WiFi.execute("defaults read /Library/Preferences/SystemConfiguration/com.apple.airport.preferences | grep LastConnected -A 8 | grep -E '(LastConnected|SSIDString|SecurityType)'", True)
+		if not ok:
+			WiFi.error(stderr)
+
+		lines = [clean(l) for l in stdout.splitlines()]
+		groups = [lines[n:n+3] for n in xrange(0, len(lines), 3)]
+		for lc, network, security_type in groups:
+		    if len(network) > h1_len:
+		        h1_len = len(network)
+		    if len(security_type) > h2_len:
+		    	h2_len = len(security_type)
+		    lc_map[lc] = (network, security_type)
+		    lc_list.append(lc)
+
+		''' show in descending order (last connected first) '''
+		lc_list.sort()
+		lc_list.reverse()
+
+		print('Joined networks history:')
+		print(fmt.format(*headers, h1_len=h1_len, h2_len=h2_len))
+		for lc in lc_list:
+			network, security_type = lc_map.get(lc)
+			print(fmt.format(network, security_type, lc, h1_len=h1_len, h2_len=h2_len))
+
+	def preferred(self, args):
+		''' list preferred wireless networks '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-listpreferredwirelessnetworks', self.interface])
+		if not ok:
+			WiFi.error(stderr) 
+		print(stdout)
+
+	def showpass(self, args):
+		''' show wireless network password stored in keychain '''
+		network = args.network
+		ok, stdout, stderr = WiFi.execute(['security', 'find-generic-password', '-D', 'AirPort network password', '-a', network, '-gw'])
+		if not ok:
+			WiFi.error(stderr) 
+		print('Wi-Fi network password: {1}'.format(network, stdout))
+
+	def scan(self, args):
+		''' scan for wireless networks '''
+		self.device_must_be_powered_on()
+		ok, stdout, stderr = WiFi.execute([airport, self.interface, '--scan'])
+		if not ok:
+			WiFi.error(stderr)
+		print(stdout)
+
+	def join(self, args):
+		''' join a wireless network '''
+		self.device_must_be_powered_on()
+		network = args.network
+		password = args.password
+		ok, stdout, stderr = WiFi.execute([networksetup, '-setairportnetwork', self.interface, network, password])
+		if not ok:
+			WiFi.error(stderr)
+		''' Join network error are written to stdout. If join succeeded then nothing gets written to stdout. '''
+		stderr = stdout
+		if stderr:
+			WiFi.exit(stderr.splitlines()[0])
+		WiFi.exit('Joined network {0}.'.format(network))
+
+	def disconnect(self, args):
+		''' disconnect from a wireless network (requires root) '''
+		self.device_must_be_powered_on()
+		if not os.geteuid() == 0:
+			WiFi.error('requires root privileges')
+		ok, stdout, stderr = WiFi.execute([airport, self.interface, '--disassociate'])
+		if not ok:
+			WiFi.error(stderr)
+
+	def status(self, args):
+		''' show currently connected wireless network '''
+		self.device_must_be_powered_on()
+		ok, stdout, stderr = WiFi.execute([networksetup, '-getairportnetwork', self.interface])
+		if not ok:
+			WiFi.error(stderr)
+		print(stdout)
+
+	def info(self, args):
+		''' show info about currently connected wireless network '''
+		self.device_must_be_powered_on()
+		ok, stdout, stderr = WiFi.execute([airport, self.interface, '--getinfo'])
+		if not ok:
+			WiFi.error(stderr)
+		print(stdout)
+
+	def mac(self, args):
+		''' show Wi-Fi device hardware (MAC) address '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-getmacaddress', self.interface])
+		if not ok:
+			WiFI.error(stderr)
+		ethernet_address = 'N/A'
+		mac_re = re.compile('(.{2}:.{2}:.{2}:.{2}:.{2}:.{2})')
+		match = mac_re.search(stdout)
+		if match:
+			ethernet_address = match.group()
+		print('Wi-Fi device {0} has MAC address: {1}'.format(self.interface, ethernet_address))
+
+	def device_must_be_powered_on(self):
+		''' exit if device is not powered on '''
+		power_status = self.power_status()
+		if not 'powered on' in power_status:
+			WiFi.exit(power_status)
+
+	def power_on(self):
+		''' power on the device '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-setairportpower', self.interface, 'on'])
+		if not ok:
+			WiFi.error(stderr)
+		return 'Wi-Fi device {0} powered on'.format(self.interface)
+		
+	def power_off(self):
+		''' power off the device '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-setairportpower', self.interface, 'off'])
+		if not ok:
+			WiFi.error(stderr)
+		return 'Wi-Fi device {0} powered off'.format(self.interface)
+
+	def power_status(self):
+		''' show current power state '''
+		ok, stdout, stderr = WiFi.execute([networksetup, '-getairportpower', self.interface])
+		if not ok:
+			WiFi.error(stderr) if stderr else WiFi.error(stdout)
+		status = stdout.split().pop().lower()
+		return 'Wi-Fi device {0} is currently powered {1}'.format(self.interface, status)
+		
+	def power(self, args):
+		''' control Wi-Fi device power state '''
+		print(getattr(self, 'power_'+args.subcommand)())
+
+
+def main():
+	ap = argparse.ArgumentParser(description='A command-line tool for managing Wi-Fi in OS X')
+
+	for o in available_options:
+		ap.add_argument(*o['flag'], **o['kwargs'])
+
+	cp = ap.add_subparsers(help='available commands', dest='command')
+
+	for cmd in available_commands:
+		p = cp.add_parser(cmd.get('name'), help=cmd.get('help'))
+
+		if cmd.has_key('arguments'):
+			for argument in cmd.get('arguments'):
+				p.add_argument(argument.get('name'), help=argument.get('help'))
+
+		if cmd.has_key('subcommands'):
+			scp = p.add_subparsers(help='available sub-commands', dest='subcommand')
+			for subcmd in cmd.get('subcommands'):
+				scp.add_parser(subcmd.get('name'), help=subcmd.get('help'))
+
+	args = ap.parse_args()
+
+	''' Map commands to methods of WiFi instance.
+	e.g: maps to wifi.scan(args)
+		$ wifi scan
+	'''
+	wifi = WiFi(args.interface)
+	getattr(wifi, args.command)(args)
+
+	return 0
+
+if __name__ == '__main__':
+	sys.exit(main())
