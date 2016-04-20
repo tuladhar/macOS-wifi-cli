@@ -1,48 +1,60 @@
-# wifi-manager
-A command-line tool for managing Wi-Fi in Mac OS X
+# wifi-cli
+A command-line tool for managing Wi-Fi in OS X
 
 ```
-usage: wifi-manager [-h] [-v] [-i INTERFACE]
-                    {preferred,scan,connect,disconnect,status,info,mac,power}
-                    ...
+usage: wifi-cli [-h] [-v] [-i INTERFACE]
+                {history,preferred,showpass,scan,join,disconnect,status,info,mac,power}
+                ...
 
-A command-line tool for managing Wi-Fi in Mac OS X
+A command-line tool for managing Wi-Fi in OS X
 
 positional arguments:
-  {preferred,scan,connect,disconnect,status,info,mac,power}
+  {history,preferred,showpass,scan,join,disconnect,status,info,mac,power}
                         available commands
-    preferred           list preferred networks
-    scan                scan for networks
-    connect             connect to a network
-    disconnect          disconnect from a network (requires root privilege)
-    status              show network connection status
-    info                show connected network info
-    mac                 show device hardware (MAC) address
-    power               control device power state
+    history             list joined wireless networks history
+    preferred           list preferred wireless networks
+    showpass            show wireless network password stored in keychain
+    scan                scan for wireless networks
+    join                join a wireless network
+    disconnect          disconnect from a wireless network (requires root)
+    status              show currently connected wireless network
+    info                show info about currently connected wireless network
+    mac                 show Wi-Fi device hardware (MAC) address
+    power               control Wi-Fi device power state
 
 optional arguments:
   -h, --help            show this help message and exit
   -v, --version         show program's version number and exit
-  -i INTERFACE          specify Wi-Fi device to use
+  -i INTERFACE          If an interface is not specified, wifi-cli will use
+                        the first Wi-Fi interface on the system.
 ```
 
 ## Install
 ```
-git clone https://github.com/tuladhar/wifi-manager
-cd wifi-manager
-install -m 755 wifi-manager /usr/local/bin
+curl -sO https://raw.githubusercontent.com/tuladhar/wifi-cli/master/wifi-cli
+install -m 755 wifi-cli /usr/local/bin
+```
+OR
+```
+git clone https://github.com/tuladhar/wifi-cli
+cd wifi-cli
+install -m 755 wifi-cli /usr/local/bin
 ```
 
-## Scan for networks
+## Scan for wireless networks
 ```
-$ wifi-manager scan
+$ wifi-cli scan
 ```
 
-## Connect to an insecure network
+## List joined wireless networks history
 ```
-$ wifi-manager connect --help
+$ wifi-cli history
+```
 
-usage: wifi-manager connect [-h] network password
+## Join an open wireless network
+```
+$ wifi-cli join -h
+usage: wifi-cli join [-h] network password
 
 positional arguments:
   network     network name
@@ -53,31 +65,34 @@ optional arguments:
 ```
 
 ```
-$ wifi-manager connect "insecure-network" ""
+$ wifi-cli join "insecure-network" ""
 ```
 
-## Connect to a protected network
+## Join a protected wireless network
 ```
-$ wifi-manager connect "protected-network" "password"
+$ wifi-cli join "protected-network" "secret-password"
 ```
 
-## Disconnect from a connected network
+## Disconnect from a wireless network (requires root)
 ```
-$ sudo wifi-manager disconnect
+$ sudo wifi-cli disconnect
 ```
 
 ## Control Wi-Fi Power
 ```
-$ wifi-manager power status
+$ wifi-cli power status
 Wi-Fi device en1 is currently powered on
 ```
 
 ```
-$ wifi-manager power off
+$ wifi-cli power off
 Wi-Fi device en1 powered off
 ```
 
 ```
-$ wifi-manager power on
+$ wifi-cli power on
 Wi-Fi device en1 powered on
 ```
+
+# Authors
+* Puru Tuladhar
