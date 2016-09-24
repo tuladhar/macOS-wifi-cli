@@ -1,12 +1,12 @@
 # wifi-cli
-A command-line tool for managing Wi-Fi in OS X
+A command-line tool for managing Wi-Fi in macOS
 
 ```
 usage: wifi-cli [-h] [-v] [-i INTERFACE]
                 {history,preferred,showpass,scan,join,disconnect,status,info,mac,power}
                 ...
 
-A command-line tool for managing Wi-Fi in OS X
+A command-line tool for managing Wi-Fi in macOS
 
 positional arguments:
   {history,preferred,showpass,scan,join,disconnect,status,info,mac,power}
