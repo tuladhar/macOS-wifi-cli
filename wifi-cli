@@ -328,7 +328,7 @@ class WiFi():
 
 
 def main():
-	ap = argparse.ArgumentParser(description='A command-line tool for managing Wi-Fi in OS X')
+	ap = argparse.ArgumentParser(description='A command-line tool for managing Wi-Fi in macOS')
 
 	for o in available_options:
 		ap.add_argument(*o['flag'], **o['kwargs'])
