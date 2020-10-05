@@ -31,15 +31,17 @@ optional arguments:
 
 ## Install
 ```
-curl -sO https://raw.githubusercontent.com/tuladhar/wifi-cli/master/wifi-cli
-install -m 755 wifi-cli /usr/local/bin
-```
-OR
-```
 git clone https://github.com/tuladhar/wifi-cli
 cd wifi-cli
-install -m 755 wifi-cli /usr/local/bin
+make install
 ```
+
+## Uninstall
+```
+cd wifi-cli
+make uninstall
+```
+
 
 ## Scan for wireless networks
 ```
